@@ -64,7 +64,7 @@ jobs:
           if [ "$OUTCOME" = "success" ]; then
             JSON="{\"success\":true,\"signature\":\"$SIG\",\"programId\":\"${{ inputs.program_id }}\",\"cluster\":\"${{ inputs.cluster }}\"}"
           else
-            JSON="{\"success\":false,\"error\":\"solana program deploy failed\",\"programId\":\"${{ inputs.program_id }}\",\"cluster\":\"${{ inputs.cluster }}\"}"
+            JSON="{\"success\":false,\"error\":\"solana program deploy failed — check the workflow run logs\",\"programId\":\"${{ inputs.program_id }}\",\"cluster\":\"${{ inputs.cluster }}\"}"
           fi
           CONTENT=$(printf '%s' "$JSON" | base64 -w 0)
           gh api repos/${{ github.repository }}/contents/outputs/${{ inputs.job_id }}.json \
