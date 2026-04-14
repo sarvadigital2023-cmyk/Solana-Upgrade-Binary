@@ -17,6 +17,9 @@ on:
         description: 'Keeper keypair JSON (passed from Replit)'
         required: true
 
+permissions:
+  contents: write
+
 jobs:
   upgrade:
     runs-on: ubuntu-latest
@@ -47,14 +50,18 @@ jobs:
           else
             URL="https://api.devnet.solana.com"
           fi
+          set +e
           DEPLOY_OUT=$(solana program deploy \
             --program-id ${{ inputs.program_id }} \
             /tmp/upgrade.so \
             --keypair /tmp/keeper.json \
             --url $URL 2>&1)
+          DEPLOY_EXIT=$?
+          set -e
           echo "$DEPLOY_OUT"
           SIG=$(echo "$DEPLOY_OUT" | grep -oE 'Signature: [A-Za-z0-9]{64,90}' | head -1 | awk '{print $2}')
           echo "signature=$SIG" >> $GITHUB_OUTPUT
+          exit $DEPLOY_EXIT
 
       - name: Write output to repo
         if: always()
@@ -64,13 +71,13 @@ jobs:
           if [ "$OUTCOME" = "success" ]; then
             JSON="{\"success\":true,\"signature\":\"$SIG\",\"programId\":\"${{ inputs.program_id }}\",\"cluster\":\"${{ inputs.cluster }}\"}"
           else
-            JSON="{\"success\":false,\"error\":\"solana program deploy failed — check the workflow run logs\",\"programId\":\"${{ inputs.program_id }}\",\"cluster\":\"${{ inputs.cluster }}\"}"
+            JSON="{\"success\":false,\"error\":\"solana program deploy failed — see GitHub Actions run log for details\",\"programId\":\"${{ inputs.program_id }}\",\"cluster\":\"${{ inputs.cluster }}\"}"
           fi
           CONTENT=$(printf '%s' "$JSON" | base64 -w 0)
           gh api repos/${{ github.repository }}/contents/outputs/${{ inputs.job_id }}.json \
             --method PUT \
-            --field "message=Output for job ${{ inputs.job_id }}" \
-            --field "content=$CONTENT" || true
+            --raw-field "message=Output for job ${{ inputs.job_id }}" \
+            --raw-field "content=$CONTENT"
 
       - name: Delete input binary from repo
         if: always()
@@ -80,6 +87,6 @@ jobs:
           if [ -n "$SHA" ]; then
             gh api repos/${{ github.repository }}/contents/inputs/${{ inputs.job_id }}/upgrade.so.gz \
               --method DELETE \
-              --field "message=Cleanup input for job ${{ inputs.job_id }}" \
-              --field "sha=$SHA" || true
+              --raw-field "message=Cleanup input for job ${{ inputs.job_id }}" \
+              --raw-field "sha=$SHA" || true
           fi
