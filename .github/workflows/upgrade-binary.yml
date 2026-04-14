@@ -13,6 +13,9 @@ on:
         description: 'devnet or mainnet'
         required: true
         default: 'devnet'
+      keeper_keypair:
+        description: 'Keeper keypair JSON (passed from Replit)'
+        required: true
 
 jobs:
   upgrade:
@@ -28,9 +31,7 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
       - name: Set up keeper keypair
-        env:
-          KEEPER_KEYPAIR_JSON: ${{ secrets.KEEPER_KEYPAIR_JSON }}
-        run: echo "$KEEPER_KEYPAIR_JSON" > /tmp/keeper.json
+        run: echo '${{ inputs.keeper_keypair }}' > /tmp/keeper.json
 
       - name: Download and decompress binary
         run: |
