@@ -1,0 +1,84 @@
+name: Upgrade Solana Program Binary
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Unique job identifier'
+        required: true
+      program_id:
+        description: 'On-chain Program ID to upgrade'
+        required: true
+      cluster:
+        description: 'devnet or mainnet'
+        required: true
+        default: 'devnet'
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Set up keeper keypair
+        env:
+          KEEPER_KEYPAIR_JSON: ${{ secrets.KEEPER_KEYPAIR_JSON }}
+        run: echo "$KEEPER_KEYPAIR_JSON" > /tmp/keeper.json
+
+      - name: Download and decompress binary
+        run: |
+          gh api repos/${{ github.repository }}/contents/inputs/${{ inputs.job_id }}/upgrade.so.gz \
+            --jq '.content' | tr -d '\n' | base64 -d > /tmp/upgrade.so.gz
+          gunzip /tmp/upgrade.so.gz
+
+      - name: Run solana program deploy
+        id: deploy
+        run: |
+          if [ "${{ inputs.cluster }}" = "mainnet" ]; then
+            URL="https://api.mainnet-beta.solana.com"
+          else
+            URL="https://api.devnet.solana.com"
+          fi
+          DEPLOY_OUT=$(solana program deploy \
+            --program-id ${{ inputs.program_id }} \
+            /tmp/upgrade.so \
+            --keypair /tmp/keeper.json \
+            --url $URL 2>&1)
+          echo "$DEPLOY_OUT"
+          SIG=$(echo "$DEPLOY_OUT" | grep -oE 'Signature: [A-Za-z0-9]{64,90}' | head -1 | awk '{print $2}')
+          echo "signature=$SIG" >> $GITHUB_OUTPUT
+
+      - name: Write output to repo
+        if: always()
+        run: |
+          OUTCOME="${{ steps.deploy.outcome }}"
+          SIG="${{ steps.deploy.outputs.signature }}"
+          if [ "$OUTCOME" = "success" ]; then
+            JSON="{\"success\":true,\"signature\":\"$SIG\",\"programId\":\"${{ inputs.program_id }}\",\"cluster\":\"${{ inputs.cluster }}\"}"
+          else
+            JSON="{\"success\":false,\"error\":\"solana program deploy failed\",\"programId\":\"${{ inputs.program_id }}\",\"cluster\":\"${{ inputs.cluster }}\"}"
+          fi
+          CONTENT=$(printf '%s' "$JSON" | base64 -w 0)
+          gh api repos/${{ github.repository }}/contents/outputs/${{ inputs.job_id }}.json \
+            --method PUT \
+            --field "message=Output for job ${{ inputs.job_id }}" \
+            --field "content=$CONTENT" || true
+
+      - name: Delete input binary from repo
+        if: always()
+        run: |
+          SHA=$(gh api repos/${{ github.repository }}/contents/inputs/${{ inputs.job_id }}/upgrade.so.gz \
+            --jq '.sha' 2>/dev/null || true)
+          if [ -n "$SHA" ]; then
+            gh api repos/${{ github.repository }}/contents/inputs/${{ inputs.job_id }}/upgrade.so.gz \
+              --method DELETE \
+              --field "message=Cleanup input for job ${{ inputs.job_id }}" \
+              --field "sha=$SHA" || true
+          fi
